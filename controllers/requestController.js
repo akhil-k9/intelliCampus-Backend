@@ -77,19 +77,31 @@ const requestSend = async (req, res) => {
 
 
 const getRequestsByStudentId = async (req, res) => {
-  const { studentId } = req.params;
-  const student = await Student.findById(studentId);
-  if (!student) {
-    return res.status(404).json({ error: 'Student not found' });
-  }
   try {
-    const requests = await Request.find({ Student: student._id });
-    res.status(200).json({requests,student});
+    const { studentId } = req.params;
+
+    // ✅ Check student
+    const student = await Student.findOne({ rollno: studentId });
+    if (!student) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+
+    // ✅ Fetch requests linked to this student
+    const requests = await Request.find({ Student: student._id })
+      .populate("Student") // in case you want student details inside each request
+      .sort({ createdAt: -1 }); // latest first
+
+    res.status(200).json({
+      student,
+      totalRequests: requests.length,
+      requests,
+    });
   } catch (err) {
-    console.error("Error fetching requests: ", err);
-    res.status(500).json({ error: 'Failed to fetch requests' });
+    console.error("Error fetching student requests:", err);
+    res.status(500).json({ error: "Failed to fetch student requests" });
   }
 };
+
 
 const getAllRequests = async (req, res) => {
   try {
@@ -103,17 +115,21 @@ const getAllRequests = async (req, res) => {
 
 const getInchargeRequests = async (req, res) => {
   try {
-    const requests = await Request.find({ to: 'incharge' });
+    const requests = await Request.find({ to: "incharge" })
+      .populate("Student"); // fetch full student details
+
     res.status(200).json(requests);
   } catch (err) {
     console.error("Error fetching incharge requests: ", err);
-    res.status(500).json({ error: 'Failed to fetch incharge requests' });
+    res.status(500).json({ error: "Failed to fetch incharge requests" });
   }
 };
 
+
 const getHodRequests = async (req, res) => {
   try {
-    const requests = await Request.find({ to: 'hod' });
+    const requests = await Request.find({ to: 'hod' })
+      .populate('Student'); // fetch full student details
     res.status(200).json(requests);
   } catch (err) {
     console.error("Error fetching hod requests: ", err);
@@ -122,47 +138,65 @@ const getHodRequests = async (req, res) => {
 };
 
 
+// ✅ Approve Request
 const approveRequest = async (req, res) => {
-  const { requestId, role } = req.query; // role can be 'incharge' or 'hod'
-
-  if (!['incharge', 'hod'].includes(role)) {
-    return res.status(400).send("Invalid role");
-  }
-
-  try {
-    const request = await Request.findById(requestId);
-    if (!request) return res.status(404).send("Request not found");
-
-    if (role === 'incharge') request.inchargeApproval = 'approved';
-    if (role === 'hod') request.hodApproval = 'approved';
-
-    await request.save();
-    res.send(`<h2>${role.toUpperCase()} Approved ✅</h2><p>The request has been approved by ${role}.</p>`);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Failed to approve request");
-  }
-};
-
-const rejectRequest = async (req, res) => {
   const { requestId, role } = req.query;
 
   if (!['incharge', 'hod'].includes(role)) {
-    return res.status(400).send("Invalid role");
+    return res.status(400).json({ error: "Invalid role" });
   }
 
   try {
-    const request = await Request.findById(requestId);
-    if (!request) return res.status(404).send("Request not found");
+    const request = await Request.findById(requestId).populate("Student"); // also fetch student details
+    if (!request) return res.status(404).json({ error: "Request not found" });
 
-    if (role === 'incharge') request.inchargeApproval = 'rejected';
-    if (role === 'hod') request.hodApproval = 'rejected';
+    if (role === "incharge") request.inchargeApproval = "approved";
+    if (role === "hod") request.hodApproval = "approved";
 
     await request.save();
-    res.send(`<h2>${role.toUpperCase()} Rejected ❌</h2><p>The request has been rejected by ${role}.</p>`);
+
+    res.status(200).json({
+      message: `${role.toUpperCase()} Approved ✅`,
+      request,
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).send("Failed to reject request");
+    console.error("Approve error:", err);
+    res.status(500).json({ error: "Failed to approve request" });
+  }
+};
+
+// ❌ Reject Request
+const rejectRequest = async (req, res) => {
+  const { requestId, role } = req.query;
+  const { reason } = req.body; // optional reason for rejection
+
+  if (!['incharge', 'hod'].includes(role)) {
+    return res.status(400).json({ error: "Invalid role" });
+  }
+
+  try {
+    const request = await Request.findById(requestId).populate("Student");
+    if (!request) return res.status(404).json({ error: "Request not found" });
+
+    if (role === "incharge") {
+      request.inchargeApproval = "rejected";
+      request.inchargeRejectionReason = reason || "No reason provided";
+    }
+    if (role === "hod") {
+      request.hodApproval = "rejected";
+      request.hodRejectionReason = reason || "No reason provided";
+    }
+
+    await request.save();
+
+    res.status(200).json({
+      message: `${role.toUpperCase()} Rejected ❌`,
+      reason: reason || null,
+      request,
+    });
+  } catch (err) {
+    console.error("Reject error:", err);
+    res.status(500).json({ error: "Failed to reject request" });
   }
 };
 
