@@ -1,6 +1,4 @@
 const Student = require('../models/Student');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const dotEnv = require('dotenv');
 
 dotEnv.config();
@@ -13,14 +11,9 @@ const signup = async (req, res) => {
     const stdRollno = await Student.findOne({ rollno });
     if (stdRollno) return res.status(400).json({ error: "Rollno already taken" });
 
-    
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
     const newStd = new Student({
       name, rollno, year, branch, section, email, phoneno,
-      password: hashedPassword,
+      password, // plain text
     });
 
     const savedStudent = await newStd.save();
@@ -52,22 +45,19 @@ const signin = async (req, res) => {
 
   try {
     const std = await Student.findOne({ rollno });
-    if (!std) return res.status(401).json({ error: "Invalid credentials" });
-
-    const isMatch = await bcrypt.compare(password, std.password);
-    if (!isMatch) return res.status(401).json({ error: "Invalid credentials" });
-
-    // Generate JWT
-    const token = jwt.sign(
-      { id: std._id, rollno: std.rollno },
-      process.env.JWT_SECRET,
-      { expiresIn: "1h" }
-    );
+    if (!std || std.password !== password) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
 
     res.status(200).json({
       success: true,
       message: "Login successful",
-      token,
+      student: {
+        id: std._id,
+        name: std.name,
+        rollno: std.rollno,
+        email: std.email,
+      }
     });
 
     console.log(`${rollno} logged in successfully.`);
@@ -80,7 +70,7 @@ const signin = async (req, res) => {
 // Get all students
 const getAllStd = async (req, res) => {
   try {
-    const stds = await Student.find().select("-password"); // don’t return passwords
+    const stds = await Student.find().select("-password"); // hide passwords
     res.json({ stds });
   } catch (error) {
     console.log(error);
