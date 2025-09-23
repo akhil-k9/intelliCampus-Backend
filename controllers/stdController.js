@@ -1,5 +1,6 @@
 const Student = require('../models/Student');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const dotEnv = require('dotenv');
 
 dotEnv.config();
@@ -8,11 +9,13 @@ dotEnv.config();
 const signup = async (req, res) => {
   const { name, rollno, year, branch, section, email, phoneno, password } = req.body;
   try {
+    // Check existing rollno or email
     const stdRollno = await Student.findOne({ rollno });
-    if (stdRollno) {
-      return res.status(400).json({ error: "User already taken" });
-    }
+    if (stdRollno) return res.status(400).json({ error: "Rollno already taken" });
 
+    
+
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const newStd = new Student({
@@ -20,9 +23,19 @@ const signup = async (req, res) => {
       password: hashedPassword,
     });
 
-    await newStd.save();
-    res.status(201).json({ message: "Signup successful" });
-    console.log('Student registered');
+    const savedStudent = await newStd.save();
+
+    res.status(201).json({
+      message: "Signup successful",
+      student: {
+        id: savedStudent._id,
+        name: savedStudent.name,
+        rollno: savedStudent.rollno,
+        email: savedStudent.email,
+      }
+    });
+
+    console.log('Student registered:', rollno);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Internal server error" });
@@ -39,18 +52,22 @@ const signin = async (req, res) => {
 
   try {
     const std = await Student.findOne({ rollno });
-    if (!std) {
-      return res.status(401).json({ error: "Invalid rollno" });
-    }
+    if (!std) return res.status(401).json({ error: "Invalid credentials" });
 
     const isMatch = await bcrypt.compare(password, std.password);
-    if (!isMatch) {
-      return res.status(401).json({ error: "Invalid password" });
-    }
+    if (!isMatch) return res.status(401).json({ error: "Invalid credentials" });
+
+    // Generate JWT
+    const token = jwt.sign(
+      { id: std._id, rollno: std.rollno },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
 
     res.status(200).json({
       success: true,
       message: "Login successful",
+      token,
     });
 
     console.log(`${rollno} logged in successfully.`);
@@ -63,7 +80,7 @@ const signin = async (req, res) => {
 // Get all students
 const getAllStd = async (req, res) => {
   try {
-    const stds = await Student.find();
+    const stds = await Student.find().select("-password"); // don’t return passwords
     res.json({ stds });
   } catch (error) {
     console.log(error);
